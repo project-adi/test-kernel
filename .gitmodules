@@ -1,0 +1,3 @@
+[submodule "kernel/src/adi/libadi"]
+	path = kernel/src/adi/libadi
+	url = https://github.com/project-adi/libadi

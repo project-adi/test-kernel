@@ -1,0 +1,122 @@
+#include <dev/char/keyboard.h>
+#include <dev/char/keyboard_map.h>
+#include <dev/char/serial.h>
+#include <dev/lapic.h>
+#include <sys/idt.h>
+#include <sys/ports.h>
+#include <lib/lock.h>
+#include <lib/fifo.h>
+#include <mm/kmalloc.h>
+
+bool keyboard_pressed = false;
+
+u32 keyboard_char = '\0';
+bool keyboard_caps = false;
+bool keyboard_shift = false;
+u8 keyboard_state = 0; // 0 = nothing, 1 = pressed 2 = released
+
+fifo* keyboard_fifo;
+
+atomic_lock kb_lock;
+
+void keyboard_handle_key(u8 key) {
+  lock(&kb_lock);
+
+  switch (key) {
+    case 0x2a:
+      // Shift
+      keyboard_shift = true;
+      keyboard_state = 1;
+      break;
+    case 0xaa:
+      keyboard_shift = false;
+      keyboard_state = 2;
+      break;
+    case 0x3a:
+      // Caps
+      keyboard_caps = !keyboard_caps;
+      keyboard_state = (keyboard_state == 0 ? 1 : 2);
+      break;
+    default:
+      // Letter
+      if (!(key & 0x80)) {
+        keyboard_state = 1;
+      } else {
+        keyboard_state = 2;
+        key -= 0x80;
+      }
+      if (keyboard_shift) keyboard_char = kb_map_keys_shift[key];
+      else if (keyboard_caps) keyboard_char = kb_map_keys_caps[key];
+      else keyboard_char = kb_map_keys[key];
+      keyboard_event ev;
+      ev.type = 1; ev.value = keyboard_state; ev.code = keyboard_char;
+      fifo_push(keyboard_fifo, &ev);
+      break;
+  }
+  unlock(&kb_lock);
+}
+
+void keyboard_wait_write() {
+  for (int i = 0; i < 10000; i++) {
+    if (!(inb(0x64) & 0x02)) {
+      return;
+    }
+  }
+}
+
+int keyboard_wait_read() {
+  for (int i = 0; i < 10000; i++) {
+    if ((inb(0x64) & 0x01) == 1) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+void keyboard_handler(registers* regs) {
+  (void)regs;
+
+  u8 key;
+
+  if (!keyboard_wait_read()) {
+    key = inb(0x60);
+    keyboard_handle_key(key);
+  } else {
+    keyboard_char = 0;
+    keyboard_pressed = false;
+  }
+  lapic_eoi();
+}
+
+i32 keyboard_read( u8* buffer, u32 count) {
+  (void)count;
+  fifo_pop(keyboard_fifo, buffer);
+  return sizeof(keyboard_event);
+}
+
+void keyboard_init() {
+  // https://wiki.osdev.org/%228042%22_PS/2_Controller#Command_Register
+  keyboard_wait_write();
+  outb(0x64, 0xAD);
+  keyboard_wait_write();
+  outb(0x64, 0x20);
+  keyboard_wait_read();
+  u8 state = inb(0x60);
+  state |= (1 << 0) | (1 << 6);
+  if ((state & (1 << 5)) != 0) {
+    state |= (1 << 1);
+  }
+  keyboard_wait_write();
+  outb(0x64, 0x60);
+  keyboard_wait_write();
+  outb(0x60, state);
+
+  keyboard_wait_write();
+  outb(0x64, 0xAE);
+  if ((state & (1 << 5)) != 0) {
+    outb(0x64, 0xa8);
+  }
+
+  irq_register(1, keyboard_handler);
+  inb(0x60);
+}
