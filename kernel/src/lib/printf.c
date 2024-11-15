@@ -1,5 +1,3 @@
-#include "syscall.h"
-
 /**
  * @author (c) Eyal Rozenberg <eyalroz1@gmx.com>
  *             2021-2022, Haifa, Palestine/Israel

@@ -1,6 +1,7 @@
 #include "adi.h"
 #include "adi_ff.h"
-#include <fs/vfs.h>
+#include <mm/vmm.h>
+#include <mm/pmm.h>
 
 #include <lib/printf.h>
 
@@ -27,5 +28,19 @@ void load_adi(const char* data) {
     printf("Driver Version: v%d.%d.%d\n", 
         header->ver_major, header->ver_minor, header->ver_patch);
 
+    pagemap* pm = vmm_new_pm();
+
+    for(int i = 0; i*sizeof(adi_ff_segment_t) < header->segment_table_size; i++){
+        adi_ff_segment_t* segment = (adi_ff_segment_t*)(data + header->segment_table_offset + i*sizeof(adi_ff_segment_t));
+
+        u64 flags = PTE_NX;
+        if(segment->flags & ADI_FF_SEGMENT_FLAG_READ) flags |= PTE_PRESENT;
+        if(segment->flags & ADI_FF_SEGMENT_FLAG_WRITE) flags |= PTE_WRITABLE;
+        if(segment->flags & ADI_FF_SEGMENT_FLAG_EXEC) flags &= ~PTE_NX;
+
+        vmm_map_range(pm, segment->virt_addr, (u64)PHYSICAL(data + header->content_region_offset + segment->segment_offset), DIV_ROUND_UP(segment->segment_size,PAGE_SIZE), flags);
+
+        printf("Segment \"%s\" mapped!\n", get_string(data, segment->name_offset));
+    }
 
 }
