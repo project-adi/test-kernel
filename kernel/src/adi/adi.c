@@ -15,6 +15,8 @@ void poke(pagemap* pm, uptr addr, u64 val){
     *(u64*)newaddr = val;
 }
 
+uptr stackptr = 0;
+
 void load_adi(const char* data) {
     adi_ff_header_t* header = (adi_ff_header_t*)data;
 
@@ -40,14 +42,14 @@ void load_adi(const char* data) {
     for(int i = 0; i*sizeof(adi_ff_segment_t) < header->segment_table_size; i++){
         adi_ff_segment_t* segment = (adi_ff_segment_t*)(data + header->segment_table_offset + i*sizeof(adi_ff_segment_t));
 
-        u64 flags = PTE_NX;
+        u64 flags = (segment->flags & ADI_FF_SEGMENT_FLAG_EXEC) ? 0 : PTE_NX;
         if(segment->flags & ADI_FF_SEGMENT_FLAG_READ) flags |= PTE_PRESENT;
         if(segment->flags & ADI_FF_SEGMENT_FLAG_WRITE) flags |= PTE_WRITABLE;
-        if(segment->flags & ADI_FF_SEGMENT_FLAG_EXEC) flags &= ~PTE_NX;
+
 
         vmm_map_range(pm, segment->virt_addr, (u64)PHYSICAL(data + header->content_region_offset + segment->segment_offset), DIV_ROUND_UP(segment->segment_size,PAGE_SIZE), flags);
 
-        printf("Segment \"%s\" mapped!\n", get_string(data, segment->name_offset));
+        printf("Segment \"%s\" mapped at 0x%lx spaning 0x%x pages with falgs 0x%lx!\n", get_string(data, segment->name_offset), segment->virt_addr, DIV_ROUND_UP(segment->segment_size,PAGE_SIZE), flags);
     }
 
     for(int i = 0; i*sizeof(adi_ff_metalang_t) < header->metalang_table_size; i++){
@@ -70,4 +72,18 @@ void load_adi(const char* data) {
         }
     }
 
+
+    printf("ADI loaded!\n");
+
+    void(*init)(void) = (void(*)())header->entry_point;
+
+    __asm__ volatile("mov %%rsp, %0" : "=r"(stackptr));
+
+    void* new_stack = pmm_alloc(4); 
+    vmm_map_range(pm, (uptr)stackptr, (uptr)new_stack, 4, PTE_PRESENT | PTE_WRITABLE);
+
+    vmm_switch_pm(pm);
+    init();
+
+    printf("Error: ADI driver exited without calling \"core->exit()\"\n");
 }
