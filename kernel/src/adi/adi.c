@@ -1,5 +1,6 @@
 #include "adi.h"
 #include "adi_ff.h"
+#include "libs.h"
 #include <mm/vmm.h>
 #include <mm/pmm.h>
 
@@ -14,8 +15,6 @@ void poke(pagemap* pm, uptr addr, u64 val){
     void* newaddr = HIGHER_HALF(vmm_get_region_paddr(pm, addr) + (addr & 0x0FFF));
     *(u64*)newaddr = val;
 }
-
-uptr stackptr = 0;
 
 void load_adi(const char* data) {
     adi_ff_header_t* header = (adi_ff_header_t*)data;
@@ -37,7 +36,7 @@ void load_adi(const char* data) {
 
     pagemap* pm = vmm_new_pm();
 
-    poke(pm, header->cfr_addr, 0);//TODO: inject a pointer to actual code here
+    poke(pm, header->cfr_addr, (u64)&cfr);
 
     for(int i = 0; i*sizeof(adi_ff_segment_t) < header->segment_table_size; i++){
         adi_ff_segment_t* segment = (adi_ff_segment_t*)(data + header->segment_table_offset + i*sizeof(adi_ff_segment_t));
@@ -65,7 +64,7 @@ void load_adi(const char* data) {
                 break;
             case 0x400F0000:
                 printf("Storage metalang found!\n");
-                poke(pm, metalang->pointer_addr, 0);//TODO: inject a pointer to actual code here
+                poke(pm, metalang->pointer_addr, (u64)&storage);
                 break;
             default:
                 printf("Unsupported metalang(only storage works rn) id: %d\n", metalang->id);
@@ -79,11 +78,12 @@ void load_adi(const char* data) {
 
     __asm__ volatile("mov %%rsp, %0" : "=r"(stackptr));
 
-    void* new_stack = pmm_alloc(4); 
+    uptr stackptr = 0;
+    void* new_stack = pmm_alloc(4);
     vmm_map_range(pm, (uptr)stackptr, (uptr)new_stack, 4, PTE_PRESENT | PTE_WRITABLE);
 
     vmm_switch_pm(pm);
     init();
 
-    printf("Error: ADI driver exited without calling \"core->exit()\"\n");
+    printf("Error: ADI driver exited without calling \"core->exit()\"!!!\n");
 }

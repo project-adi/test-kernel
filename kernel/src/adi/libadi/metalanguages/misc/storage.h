@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include <core.h>
+#include "../../core.h"
 
 typedef struct {
     uint64_t size;
@@ -16,7 +16,7 @@ typedef sdev_ident_t (*event_identify)(adi_device_t* dev);
 typedef uint32_t (*event_transact)(adi_device_t* dev,bool write,uint32_t offset,uint32_t count,void* buffer); 
 
 typedef struct {
-    metalanguage_t (*new)(event_identify identify,event_transact transact);
+    metalanguage_t (*create)(event_identify identify,event_transact transact);
     bool (*signal_transaction_done)(adi_device_t* dev, uint32_t id);
 
 } metalang_storage_t;
