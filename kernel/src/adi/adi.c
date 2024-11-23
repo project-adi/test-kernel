@@ -1,5 +1,6 @@
 #include "adi.h"
 #include "adi_ff.h"
+#include "libadi/core.h"
 #include "libs.h"
 #include <mm/vmm.h>
 #include <mm/pmm.h>
@@ -9,11 +10,6 @@
 const char* get_string(const char* data, uint16_t offset){
     adi_ff_header_t* header = (adi_ff_header_t*)data;
     return data + header->string_table_offset + offset;
-}
-
-void poke(pagemap* pm, uptr addr, u64 val){
-    void* newaddr = HIGHER_HALF(vmm_get_region_paddr(pm, addr) + (addr & 0x0FFF));
-    *(u64*)newaddr = val;
 }
 
 void load_adi(const char* data) {
@@ -36,8 +32,6 @@ void load_adi(const char* data) {
 
     pagemap* pm = vmm_new_pm();
 
-    poke(pm, header->cfr_addr, (u64)&cfr);
-
     for(int i = 0; i*sizeof(adi_ff_segment_t) < header->segment_table_size; i++){
         adi_ff_segment_t* segment = (adi_ff_segment_t*)(data + header->segment_table_offset + i*sizeof(adi_ff_segment_t));
 
@@ -56,15 +50,12 @@ void load_adi(const char* data) {
         switch(metalang->id){
             case 0x00000001:
                 printf("x86_64 metalang found!\n");
-                poke(pm, metalang->pointer_addr, 0);//TODO: inject a pointer to actual code here
                 break;
             case 0x00010000:
                 printf("PCI metalang found!\n");
-                poke(pm, metalang->pointer_addr, 0);//TODO: inject a pointer to actual code here
                 break;
             case 0x400F0000:
                 printf("Storage metalang found!\n");
-                poke(pm, metalang->pointer_addr, (u64)&storage);
                 break;
             default:
                 printf("Unsupported metalang(only storage works rn) id: %d\n", metalang->id);
@@ -74,11 +65,12 @@ void load_adi(const char* data) {
 
     printf("ADI loaded!\n");
 
-    void(*init)(void) = (void(*)())header->entry_point;
+    uptr stackptr = 0;
+
+    adi_
 
     __asm__ volatile("mov %%rsp, %0" : "=r"(stackptr));
 
-    uptr stackptr = 0;
     void* new_stack = pmm_alloc(4);
     vmm_map_range(pm, (uptr)stackptr, (uptr)new_stack, 4, PTE_PRESENT | PTE_WRITABLE);
 
